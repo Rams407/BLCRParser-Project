@@ -1,11 +1,30 @@
 # BL CR Parser 
 #Date: 08/08/2016
+#updated: 09/22/2016  
+# Added feature like finding log file from buildID
+# and modified date validation code
 
+import os
+import subprocess as sp
 from sys import argv
 import datetime
+import re
+import time
 
+class Build(object):
+	def __init__(self,build):
+		self.cmd = "findbuild "+build+" -lo"
+	def command(self):
+		FP = open("findbuild.txt", 'w')
+		process = sp.Popen(self.cmd,shell=False,stderr=sp.STDOUT,stdout=sp.PIPE)
+		Data = process.stdout.read(1)
+		while Data:
+			FP.write(Data)
+			Data = process.stdout.read(1)
+		FP.close()
 class BLCR(object):
 	def __init__(self):
+		self.Build = ""
 		self.List = []
 		self.Blocking_list = ["MandatoryBlocking", "TechMandatory", "SecurityCritical", "SecurityBlocking", "StabilityBlocking", "PerformanceBlocking", "GeneralBlocking"]
 		self.Pl_Threshold = ""
@@ -15,16 +34,28 @@ class BLCR(object):
 		self.CR_Subsystem = {}
 		self.Final_CR_Threshold = {}
 		self.Final_CR_Date = {}
-		self.Msg = "Usage : python BLCR_Parser.py VerifySrc.log today \n\tDate format: YYYY-MM-DD"
+		self.Msg = "Usage : python BLCR_Parser.py BuildID today \n\tDate format: YYYY-MM-DD"
 		
+	def Get_Build_Path(self):
+		FP = open("findbuild.txt", 'r')
+		for line in FP:
+			words = line.split()
+			for word in words:
+				if "Location:" == word:
+					Build_Path = words[1]
+					break
+		FP.close()
+		self.Build = Build_Path
+	
+	def Remove_text(self):
+		os.remove("findbuild.txt")
+	
 	def File_Read(self,file):
 		try:
 			fp = open(file, "r") # opeing verifysrc file for reading
 		except IOError:
 			print "Can't find the file specified"
 			quit()
-		fp.close()
-		
 		with open(file, "r") as FP:
 			for line in FP.readline().split('\r'): # Reading line by line from file and storing into variable called line
 				self.List.append(line) # appeding each to a List variable
@@ -77,14 +108,12 @@ class BLCR(object):
 	
 	def Write_into_File(self,str):
 		File_Name = self.Pl_Name +".txt"
-		
 		if str == "Error:" and len(self.Final_CR_Threshold) == 0:
 			print "No CRs Found in Error...Quiting"
 			quit()
 		if str == "Warning:" and len(self.Final_CR_Date) == 0:
-			print "No Warnings found within date specified ...Quiting"
+			print "No CRs Found in Warning...Quiting"
 			quit()
-			
 		FP = open(File_Name,"w")
 		#writing Data into text file in below format
 		FP.write("{0:10}{1:20}{2:20}{3:20}".format("CR","Technology","Blocking Date","Threshold")+"\n")
@@ -116,27 +145,46 @@ class BLCR(object):
 			else:
 				pass		
 		#print self.Final_CR_Date
+	
+	def Time_Delta(self,start,end):
+		Delta_time = []
+		Delta = end-start
+		Delta_time.append(Delta/60)
+		Delta_time.append(Delta%60)
+		return Delta_time
 		
 	def Main(self):
-		if len(argv) != 3: #This is to check Valid Inputs count
+		start_time = time.time()
+		if len(argv) != 3: #This is to check Validating Inputs count
 			print self.Print()
 			print "\t*****Abroting*****"
 			quit()
-		Src_File = argv[1]
 		Date = argv[2]
-		if Date != "today":
+		#print Date
+		
+		Regex = re.compile(r'\d{4}\-') # Date validation
+		if Regex.search(Date):
 			Date_List = Date.split("-")
-			if Date_List[0] == Date: # This is for Date validation
-				print "Please enter Date format as below..."
-				print self.Print()
-				quit()
-			elif len(Date_List[0]) != 4:
-				print "Please Date format as below..."
-				print self.Print()
-				quit()
+			if int(Date_List[1])<=12 and int(Date_List[2])<=31:
+				print "Date ok"
 			else:
-				pass
-		self.File_Read(Src_File)
+				print "Month or Date is out of range...pls check"
+				quit()
+		elif  Date == "today":
+			pass
+		else:
+			print "Please enter Date format as below..."
+			print self.Print()
+			quit()
+
+		Build(argv[1]).command()
+		self.Get_Build_Path()
+		self.Remove_text()
+		if self.Build:
+			VerifySrcFile = self.Build + "\VerifySrc.log"
+			#print VerifySrcFile
+			
+		self.File_Read(VerifySrcFile)
 		self.Find_PL_Threshold()
 		if Date == "today":
 			#print "Error based CR info:"
@@ -151,9 +199,14 @@ class BLCR(object):
 			self.Required_Threshold_CRs()
 			self.Required_CRs_Based_Date(Date)
 			self.Write_into_File("Warning:")
-			
+		end_time = time.time()
+		Time = self.Time_Delta(start_time,end_time)
+		print "Elapsed time: %d mins %d secs" % (Time[0],Time[1])
+	
 	def Print(self):
 		return self.Msg
+
+#**********Main Block***********
 
 if __name__ == "__main__":
 	BLCR_obj = BLCR()
